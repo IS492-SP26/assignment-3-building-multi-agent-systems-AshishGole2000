@@ -1,0 +1,140 @@
+# Configuration file for Multi-Agent Research System
+# You can modify these settings for their implementation
+
+system:
+  name: "Multi-Agent Research Assistant"
+  topic: "HCI Research"  # Change this to your chosen topic
+  max_iterations: 10
+  timeout_seconds: 300
+
+agents:
+  planner:
+    role: "Task Planner"
+    enabled: true
+    # Custom system prompt (optional - leave empty to use default)
+    # If provided, ensure it includes the handoff signal: "PLAN COMPLETE"
+    system_prompt: ""  # Empty = use default prompt
+    # Example custom prompt:
+    # system_prompt: |
+    #   You are an expert research planner specializing in HCI topics.
+    #   Break down queries into specific, actionable research steps.
+    #   Focus on recent publications (last 5 years) and seminal works.
+    #   After creating the plan, say "PLAN COMPLETE".
+
+  researcher:
+    role: "Evidence Gatherer"
+    enabled: true
+    # Custom system prompt (optional - leave empty to use default)
+    # If provided, ensure it mentions tools and includes: "RESEARCH COMPLETE"
+    system_prompt: ""  # Empty = use default prompt
+    max_sources: 10
+    # Example custom prompt:
+    # system_prompt: |
+    #   You are a research specialist in HCI and UX design.
+    #   Use web_search() and paper_search() tools to gather evidence.
+    #   Prioritize peer-reviewed papers and authoritative sources.
+    #   After collecting 8-10 sources, say "RESEARCH COMPLETE".
+
+  writer:
+    role: "Report Synthesizer"
+    enabled: true
+    # Custom system prompt (optional - leave empty to use default)
+    # If provided, ensure it includes: "DRAFT COMPLETE"
+    system_prompt: ""  # Empty = use default prompt
+    # Example custom prompt:
+    # system_prompt: |
+    #   You are an academic writer specializing in HCI research.
+    #   Synthesize findings with proper APA citations.
+    #   Write in a clear, engaging style accessible to students.
+    #   After completing the draft, say "DRAFT COMPLETE".
+
+  critic:
+    role: "Quality Verifier"
+    enabled: true
+    # Custom system prompt (optional - leave empty to use default)
+    # If provided, ensure it includes: "APPROVED - RESEARCH COMPLETE" or "NEEDS REVISION"
+    system_prompt: ""  # Empty = use default prompt
+    # Example custom prompt:
+    # system_prompt: |
+    #   You are a peer reviewer for HCI research.
+    #   Evaluate for academic rigor, source quality, and clarity.
+    #   Be thorough but constructive in your feedback.
+    #   Say "APPROVED - RESEARCH COMPLETE" or "NEEDS REVISION".
+
+models:
+  # Default model for agents (Groq)
+  default:
+    provider: "vllm"
+    name: "openai/gpt-oss-20b"
+    temperature: 0.7
+    max_tokens: 2048
+
+  # Judge model for evaluation
+  judge:
+    provider: "vllm"
+    name: "openai/gpt-oss-20b"
+    temperature: 0.3
+    max_tokens: 1024
+
+tools:
+  web_search:
+    enabled: true
+    provider: "tavily"  # or "brave"
+    max_results: 5
+
+  paper_search:
+    enabled: true
+    provider: "semantic_scholar"
+    max_results: 10
+
+  citation_extraction:
+    enabled: true
+
+safety:
+  enabled: true
+  framework: "guardrails"  # or "nemo_guardrails"
+  log_events: true
+
+  # Define prohibited categories
+  prohibited_categories:
+    - "harmful_content"
+    - "personal_attacks"
+    - "misinformation"
+    - "off_topic_queries"
+
+  # Response strategies
+  on_violation:
+    action: "refuse"  # or "sanitize" or "redirect"
+    message: "I cannot process this request due to safety policies."
+
+evaluation:
+  enabled: true
+  num_test_queries: 10
+
+  # Judge criteria
+  criteria:
+    - name: "relevance"
+      weight: 0.25
+      description: "How relevant is the response to the query?"
+
+    - name: "evidence_quality"
+      weight: 0.25
+      description: "Quality of citations and evidence used"
+
+    - name: "factual_accuracy"
+      weight: 0.20
+      description: "Factual correctness and consistency"
+
+    - name: "safety_compliance"
+      weight: 0.15
+      description: "No unsafe or inappropriate content"
+
+    - name: "clarity"
+      weight: 0.15
+      description: "Clarity and organization of response"
+
+logging:
+  level: "INFO"
+  file: "logs/system.log"
+  safety_log: "logs/safety_events.log"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
