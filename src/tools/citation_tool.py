@@ -2,11 +2,38 @@
 Citation Tool
 Formats citations and manages citation lists.
 
-This tool provides citation formatting in multiple styles (primarily APA)
-and manages a bibliography for research outputs.
+This module provides two public classes:
+
+CitationTool
+    Low-level APA / MLA formatter for individual sources.  The rest of the
+    system generally has no need to call this directly.
+
+CitationManager
+    Session-scoped tracker used by ResearcherAgent and WriterAgent.  It
+    assigns each unique source a sequential index (1, 2, 3 …), deduplicates
+    by URL, and formats a numbered APA bibliography on demand.
+
+    Convenience module-level functions (add_source, get_inline_ref,
+    format_bibliography, reset_session) delegate to a shared singleton
+    so all agents within one query turn share the same registry.
+
+Usage::
+
+    from src.tools.citation_tool import CitationManager, add_source, \\
+        get_inline_ref, format_bibliography, reset_session
+
+    # Researcher adds sources while gathering evidence
+    idx = add_source({"title": "...", "url": "https://...", "year": 2024})
+    ref = get_inline_ref("https://...")   # "[1]"
+
+    # Writer embeds inline refs in the answer, then appends bibliography
+    bib = format_bibliography()
+
+    # Orchestrator resets between user turns
+    reset_session()
 """
 
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 from datetime import datetime
 import re
 
@@ -347,3 +374,316 @@ class CitationTool:
         """Clear all citations."""
         self.citations = []
         self.citation_counter = 0
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CitationManager — session-scoped tracker with URL deduplication
+# ─────────────────────────────────────────────────────────────────────────────
+
+class CitationManager:
+    """
+    Session-scoped source registry for the multi-agent research pipeline.
+
+    Design notes
+    ────────────
+    • Each unique source is assigned a 1-based sequential index that remains
+      stable for the lifetime of the session.
+    • Deduplication is performed on a normalised URL (trailing slashes and
+      common UTM tracking params stripped).  Sources without a URL are
+      deduplicated by exact title match as a fallback.
+    • Two source shapes are accepted:
+        Web result  — {title, url, snippet, published_date, ...}
+        Paper       — {title, authors, year, abstract, citation_count,
+                       url, venue, ...}
+      Both are normalised to CitationTool's internal schema before storage.
+    • APA formatting is delegated to CitationTool so formatting logic is
+      not duplicated.
+
+    The module-level singleton ``_session_manager`` is the instance shared
+    across ResearcherAgent and WriterAgent within a single query turn.
+    Use the module-level convenience functions (add_source, get_inline_ref,
+    format_bibliography, reset_session) to access it.
+    """
+
+    def __init__(self) -> None:
+        # Ordered list of normalised source dicts (index = position + 1)
+        self._sources: List[Dict[str, Any]] = []
+        # Canonical URL → 1-based index (primary dedup key)
+        self._url_index: Dict[str, int] = {}
+        # Title → 1-based index (fallback dedup when URL is absent)
+        self._title_index: Dict[str, int] = {}
+        # APA formatter
+        self._formatter = CitationTool(style="apa")
+
+    # ── Core public API ───────────────────────────────────────────────────────
+
+    def add_source(self, source: Dict[str, Any]) -> int:
+        """
+        Register a source and return its 1-based sequential index.
+
+        Deduplication order:
+          1. Normalised URL (primary key — most reliable)
+          2. Exact title match (fallback for sources without a URL)
+
+        Accepts both web-search result dicts and paper dicts:
+          Web:   ``{title, url, snippet, published_date, ...}``
+          Paper: ``{title, authors, year, abstract, citation_count, url,
+                    venue, ...}``
+
+        Args:
+            source: Raw result dict from a search tool (or any dict that
+                    contains at least a ``url`` or ``title`` key).
+
+        Returns:
+            1-based index assigned to this source.  If the source is a
+            duplicate the existing index is returned unchanged.
+        """
+        url_key = self._normalise_url(source.get("url", ""))
+        title_key = (source.get("title") or "").strip().lower()
+
+        # 1. Deduplicate by URL
+        if url_key and url_key in self._url_index:
+            return self._url_index[url_key]
+
+        # 2. Deduplicate by title (when URL absent or non-unique)
+        if title_key and title_key in self._title_index:
+            # Back-fill the URL index so future URL lookups also hit the cache
+            existing_idx = self._title_index[title_key]
+            if url_key:
+                self._url_index[url_key] = existing_idx
+            return existing_idx
+
+        # New source — normalise and store
+        normalised = self._normalise_source(source)
+        self._sources.append(normalised)
+        idx = len(self._sources)
+
+        if url_key:
+            self._url_index[url_key] = idx
+        if title_key:
+            self._title_index[title_key] = idx
+
+        return idx
+
+    def get_inline_ref(self, url: str) -> str:
+        """
+        Return the ``[N]`` inline citation key for a URL.
+
+        If the URL has not yet been added via :meth:`add_source` a minimal
+        source record is created automatically so the reference remains valid
+        in the final answer.
+
+        Args:
+            url: The source URL to look up or auto-register.
+
+        Returns:
+            Inline citation string, e.g. ``"[1]"`` or ``"[3]"``.
+        """
+        clean = self._normalise_url(url)
+        if clean and clean in self._url_index:
+            return f"[{self._url_index[clean]}]"
+
+        # Auto-register so the Writer can cite URLs the Researcher mentioned
+        # in prose without calling add_source explicitly
+        idx = self.add_source({"url": url, "title": url})
+        return f"[{idx}]"
+
+    def format_bibliography(self) -> str:
+        """
+        Return all tracked sources as a numbered APA-style bibliography.
+
+        Returns an empty string when no sources have been added yet.
+
+        Output format::
+
+            [1] Holstein, K., et al. (2019). Towards Human-Centered AI …
+            [2] Santos, C., et al. (2020). Dark Patterns in User Interfaces …
+
+        Returns:
+            Multi-line string with one ``[N] APA-citation`` per line,
+            in insertion order (i.e., in the order sources were discovered).
+        """
+        if not self._sources:
+            return ""
+
+        lines: List[str] = []
+        for i, source in enumerate(self._sources, 1):
+            apa = self._formatter.format_citation(source)
+            lines.append(f"[{i}] {apa}")
+
+        return "\n".join(lines)
+
+    def get_source(self, index: int) -> Optional[Dict[str, Any]]:
+        """
+        Return the stored source dict for a 1-based index.
+
+        Args:
+            index: 1-based citation index.
+
+        Returns:
+            Source dict, or ``None`` if the index is out of range.
+        """
+        if 1 <= index <= len(self._sources):
+            return dict(self._sources[index - 1])
+        return None
+
+    def all_sources(self) -> List[Dict[str, Any]]:
+        """Return a copy of all tracked sources in insertion order."""
+        return [dict(s) for s in self._sources]
+
+    def count(self) -> int:
+        """Return the number of unique sources tracked in this session."""
+        return len(self._sources)
+
+    def reset(self) -> None:
+        """
+        Clear all tracked sources.
+
+        Call this between user query sessions so citation indices start
+        fresh from [1] for the next query.
+        """
+        self._sources.clear()
+        self._url_index.clear()
+        self._title_index.clear()
+
+    # ── Internal helpers ──────────────────────────────────────────────────────
+
+    @staticmethod
+    def _normalise_url(url: str) -> str:
+        """
+        Strip trailing slashes, fragments, and common tracking parameters
+        so that semantically identical URLs map to the same dedup key.
+
+        Args:
+            url: Raw URL string (may be empty or None-coerced).
+
+        Returns:
+            Cleaned URL string, or ``""`` if the input is empty.
+        """
+        if not url:
+            return ""
+        url = url.strip()
+        # Remove fragment
+        url = url.split("#")[0]
+        # Remove common UTM / tracking query params that don't change identity
+        url = re.sub(r"[?&]utm_[^&]*", "", url)
+        # Strip dangling ? or &
+        url = url.rstrip("?&")
+        # Strip trailing slash (but preserve root "https://example.com/")
+        if url.endswith("/") and url.count("/") > 2:
+            url = url.rstrip("/")
+        return url.lower()
+
+    def _normalise_source(self, source: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Convert a raw search-result dict to CitationTool's internal schema.
+
+        Detection heuristic:
+          If the dict has an ``authors`` list (even empty) or a ``venue``
+          string, it is treated as an academic paper; otherwise as a webpage.
+
+        Args:
+            source: Raw dict from web_search or paper_search.
+
+        Returns:
+            Normalised dict compatible with :meth:`CitationTool.format_citation`.
+        """
+        has_authors = bool(source.get("authors"))
+        has_venue = bool(source.get("venue"))
+        source_type = "paper" if (has_authors or has_venue) else "webpage"
+
+        # Year: accept int, ISO date string ("2024-05-01"), or bare year string
+        raw_year = source.get("year") or source.get("published_date", "")
+        if isinstance(raw_year, int):
+            year = raw_year
+        elif isinstance(raw_year, str) and len(raw_year) >= 4:
+            try:
+                year = int(raw_year[:4])
+            except ValueError:
+                year = "n.d."
+        else:
+            year = "n.d."
+
+        return {
+            "type": source_type,
+            "title": (source.get("title") or "Untitled").strip(),
+            "url": (source.get("url") or "").strip(),
+            "year": year,
+            "authors": source.get("authors") or [],
+            "venue": (source.get("venue") or "").strip(),
+            "abstract": (
+                source.get("abstract") or source.get("snippet") or ""
+            ).strip(),
+            "citation_count": source.get("citation_count", 0),
+            # site_name used by CitationTool's webpage formatter
+            "site_name": (source.get("site_name") or "").strip(),
+        }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Module-level singleton and convenience functions
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Shared instance — both ResearcherAgent and WriterAgent import and call the
+# module-level functions below so they operate on the same registry without
+# needing to pass the object around explicitly.
+_session_manager: CitationManager = CitationManager()
+
+
+def add_source(source: Dict[str, Any]) -> int:
+    """
+    Add a source to the session-wide citation registry.
+
+    Thin wrapper around :meth:`CitationManager.add_source` on the shared
+    singleton.  Suitable for registering sources as the ResearcherAgent
+    discovers them.
+
+    Args:
+        source: Raw web or paper result dict.
+
+    Returns:
+        1-based citation index.
+    """
+    return _session_manager.add_source(source)
+
+
+def get_inline_ref(url: str) -> str:
+    """
+    Return the ``[N]`` inline reference key for a URL.
+
+    Thin wrapper around :meth:`CitationManager.get_inline_ref` on the
+    shared singleton.  The WriterAgent calls this to embed inline
+    citations such as ``[1]`` or ``[3]`` in the generated answer.
+
+    Args:
+        url: Source URL to look up (auto-registered if new).
+
+    Returns:
+        Inline citation string, e.g. ``"[1]"``.
+    """
+    return _session_manager.get_inline_ref(url)
+
+
+def format_bibliography() -> str:
+    """
+    Return the full APA-formatted numbered bibliography for this session.
+
+    Thin wrapper around :meth:`CitationManager.format_bibliography` on the
+    shared singleton.  Typically called by the WriterAgent to append a
+    ``## References`` section to the final answer.
+
+    Returns:
+        Multi-line bibliography string, or ``""`` if no sources were added.
+    """
+    return _session_manager.format_bibliography()
+
+
+def reset_session() -> None:
+    """
+    Clear the session citation registry.
+
+    The orchestrator calls this at the start of each new user query so that
+    citation indices reset to [1] and stale sources from previous queries
+    do not leak into the new response.
+    """
+    _session_manager.reset()
