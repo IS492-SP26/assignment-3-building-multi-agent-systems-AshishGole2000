@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(kill -0 6037)",
+      "Bash(python tests/test_minimal.py paper)"
+    ]
+  }
+}
