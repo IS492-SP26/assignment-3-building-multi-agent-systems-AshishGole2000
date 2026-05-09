@@ -490,8 +490,11 @@ class InputGuardrail:
             if llm_result is not None:
                 return llm_result  # LLM flagged something — trust it
 
-            # LLM explicitly said safe — trust it, do not second-guess with keywords
-            return None
+            # LLM said safe for HARMFUL/INJECTION — trust it for those.
+            # Still run keyword check for OFF_TOPIC: the LLM can miss non-HCI
+            # topics (e.g. "pasta recipe"), while expanded _HCI_KEYWORDS now
+            # correctly covers auth/login/UX topics so no false positives.
+            return self._keyword_off_topic_check(query)
 
         except Exception as exc:
             logger.warning(
