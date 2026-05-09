@@ -166,6 +166,13 @@ The LLM Judge panel showing dual independent scores: Judge 1 (Research Quality, 
 
 ---
 
+### 7. Query History & Export Session JSON
+The Query History panel listing all queries submitted in the current session with timestamps and source counts. The Export Session JSON button downloads the full session — agent traces, citations, safety events, and judge scores — as a structured JSON file.
+
+![Query history panel and Export Session JSON button](docs/screenshot_query_history_export__session_json.png)
+
+---
+
 ## Safety Policies
 
 The two-layer guardrail runs on every query before any agent or search is invoked.
