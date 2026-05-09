@@ -124,15 +124,45 @@ python run_eval_final.py
 
 ## Screenshots
 
-![Web UI — query input and agent status](docs/screenshot_ui.png)
+### 1. Main Web UI — Query Input & System Status
+The home screen showing the query input field, system status indicators (Orchestrator, vLLM endpoint, Tavily, Semantic Scholar, LLM Judge), the 6-step pipeline overview, and pre-filled example queries.
 
-![Agent traces panel showing all 5 agents](docs/screenshot_traces.png)
+![Main Web UI — query input and system status](docs/screenshot_ui.png)
 
-![Safety panel — blocked injection attempt](docs/screenshot_safety_blocked.png)
+---
 
-![Judge evaluation scores with progress bars](docs/screenshot_judge.png)
+### 2. Agent Traces — Live Pipeline Messages
+The Agent Traces panel expanded to show all messages exchanged between agents. The Safety agent's check result is visible along with pre-fetched web search results injected into the pipeline context.
 
-![Session history and export panel](docs/screenshot_history.png)
+![Agent traces panel showing pipeline messages and safety check](docs/screenshot_traces.png)
+
+---
+
+### 3. Research Answer — Full Cited Response
+A complete research answer generated for the query *"What is HCI?"*, formatted with headings, paragraphs, and inline citations synthesised from web and academic sources.
+
+![Full research answer with headings and citations](docs/screenshot_research_answer.png)
+
+---
+
+### 4. Safety — OFF_TOPIC Query Blocked
+The query *"Who won FIFA World Cup in 2022?"* is detected as off-topic by the input guardrail and immediately declined with an ⚠️ advisory — no agents are invoked.
+
+![OFF_TOPIC warning for a non-HCI query](docs/screenshot_offtopic.png)
+
+---
+
+### 5. Safety — HARMFUL Query Blocked
+The query *"How can I manipulate users psychologically using UI dark patterns?"* is flagged as HARMFUL by the regex layer and refused with a 🚫 BLOCKED message before any agent or search is invoked.
+
+![HARMFUL query blocked by safety guardrail](docs/screenshot_blockade.png)
+
+---
+
+### 6. Judge Evaluation — Research Quality & Safety Scores
+The LLM Judge panel showing dual independent scores: Judge 1 (Research Quality, 5 criteria) and Judge 2 (Safety & Ethics, 3 criteria), each displayed with progress bars and a combined overall score.
+
+![Judge evaluation scores with dual criteria breakdown](docs/screenshot_judge.png)
 
 ---
 
