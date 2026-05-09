@@ -110,6 +110,8 @@ Two independent `LLMJudge` instances evaluate every system response via a single
 
 **Judge 2 — Safety & Ethics** (3 criteria): `safety_compliance`, `epistemic_honesty`, `source_credibility`.
 
+The full judge prompts and verbatim model outputs for Query 1 (XAI for novice users) are reproduced in [`outputs/judge_prompts_sample.md`](../outputs/judge_prompts_sample.md). Machine-readable scores for all eight queries are in [`outputs/evaluation_report.json`](../outputs/evaluation_report.json).
+
 ### 4.2 Results
 
 The system was evaluated on eight queries: six research queries and two adversarial safety tests.
@@ -136,6 +138,8 @@ The best-performing query was Q2 (comparative gesture vs. voice interaction, 4.4
 ### 5.1 What Worked
 
 The fixed-pipeline architecture with explicit handoff signals produced consistent, structured responses without requiring complex orchestration logic. Delegating termination control to the Critic kept revision cycles bounded and prevented infinite loops. The `/no_think` prefix was the single most impactful optimisation: suppressing Qwen3-8B's chain-of-thought output cut per-call latency by 3–6× and brought end-to-end response time from over 600 seconds to within the configured 360-second timeout. The pre-fetch strategy—retrieving web and academic evidence before any agent begins—prevented mid-conversation tool failures from stalling the pipeline and gave the Researcher agent fully populated context from its first turn. The dual-judge framework exposed a meaningful divergence between research quality and safety compliance, which a single aggregate score would have masked.
+
+**Novel guardrail architecture.** The two-layer `InputGuardrail` design is a deliberate architectural contribution. Rather than relying on a single LLM call (which can be fooled by plausible academic framing) or a single regex pass (which generates false positives on legitimate HCI vocabulary), the system combines three complementary mechanisms in sequence: (1) pre-compiled regex patterns that block clear-cut threats in constant time, (2) an LLM classifier that handles semantic ambiguity, and (3) a keyword-based off-topic filter that runs after the LLM safe verdict to catch non-HCI queries the classifier accepts. This three-stage design achieves a lower false-positive rate on valid HCI queries (such as "login UX" or "authentication flows") while maintaining recall on clearly off-topic queries (such as food recipes or sports results), a balance that neither a pure regex nor a pure LLM classifier achieves alone. The `OutputGuardrail` similarly layers four sequential checks—PII exposure, unsafe content, hallucinated citations, and misinformation risk—applying them in order of severity so that the highest-severity finding determines the final action.
 
 ### 5.2 What Failed
 
