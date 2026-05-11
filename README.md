@@ -113,12 +113,16 @@ You can also invoke each mode directly:
 # Web UI directly via Streamlit
 streamlit run src/ui/streamlit_app.py
 
-# Single-query demo with per-agent timeout and retry
+# Full end-to-end example: query → agents → final synthesis → judge scoring
+# Runs all 6 agent steps, both LLM judges, and saves demo_session.json,
+# demo_answer.md, and safety_log.jsonl to outputs/
 python run_demo.py
 
 # Batch evaluation (merges all query results into final reports)
 python run_eval_final.py
 ```
+
+> **End-to-end single-command demo:** `python run_demo.py` is the canonical script for a complete pipeline run. It covers input guardrail → web/paper pre-fetch → Safety → Planner → Researcher → Critic → Writer → output guardrail → dual LLM judge scoring, and writes all artifacts to `outputs/`. See [`run_demo.py`](run_demo.py) for the full implementation and [`outputs/demo_answer.md`](outputs/demo_answer.md) / [`outputs/demo_session.json`](outputs/demo_session.json) for representative expected outputs.
 
 ---
 
